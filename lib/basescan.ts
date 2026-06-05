@@ -1,11 +1,10 @@
 import { WalletMetrics, ActivityBreakdown } from './types';
 
-const ETHERSCAN_V2_API = 'https://api.etherscan.io/v2/api';
-const BASE_CHAIN_ID = '8453'; // Base Mainnet
+const COVALENT_API = 'https://api.covalenthq.com/v1';
+const BASE_CHAIN_ID = '8453';
 
-const MAX_TXS = 50000;
+const MAX_PAGES = 5; // Fetch up to 5 pages (adjust as needed)
 
-// Known popular contracts on Base
 const KNOWN_CONTRACTS: Record<string, keyof ActivityBreakdown> = {
   '0x3154cf16ccdb4c6d922629664174b904d80f2c35': 'bridge',
   '0x4200000000000000000000000000000000000010': 'bridge',
@@ -16,54 +15,41 @@ const KNOWN_CONTRACTS: Record<string, keyof ActivityBreakdown> = {
 };
 
 function isLikelySpam(tx: any): boolean {
-  if (!tx.value || !tx.from || !tx.to) return false;
+  if (!tx.value || !tx.from_address || !tx.to_address) return false;
   const value = BigInt(tx.value);
-  const isSelf = tx.from.toLowerCase() === tx.to.toLowerCase();
+  const isSelf = tx.from_address.toLowerCase() === tx.to_address.toLowerCase();
   return isSelf && value < BigInt('1000000000000000');
 }
 
 export async function fetchBaseTransactions(address: string, apiKey: string): Promise<any[]> {
   const allTxs: any[] = [];
-  let page = 1;
-  const offset = 10000;
 
-  while (allTxs.length < MAX_TXS) {
-    const params = new URLSearchParams({
-      chainid: BASE_CHAIN_ID,
-      module: 'account',
-      action: 'txlist',
-      address: address,
-      startblock: '0',
-      endblock: '99999999',
-      page: page.toString(),
-      offset: offset.toString(),
-      sort: 'asc',
-      apikey: apiKey,
-    });
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const url = `${COVALENT_API}/${BASE_CHAIN_ID}/address/${address}/transactions_v3/?key=${apiKey}&page-number=${page}&page-size=1000`;
 
     try {
-      const response = await fetch(`${ETHERSCAN_V2_API}?${params.toString()}`);
+      const response = await fetch(url);
 
       if (!response.ok) {
-        console.error('Etherscan V2 API error:', response.status);
+        console.error('Covalent API error:', response.status);
         break;
       }
 
       const data = await response.json();
 
-      if (data.status !== '1' || !data.result || data.result.length === 0) {
+      if (!data.data || !data.data.items || data.data.items.length === 0) {
         break;
       }
 
-      allTxs.push(...data.result);
+      allTxs.push(...data.data.items);
 
-      if (data.result.length < offset) break;
-
-      page++;
-      await new Promise(r => setTimeout(r, 150));
+      // Stop if we've reached the last page
+      if (!data.data.pagination || !data.data.pagination.has_more) {
+        break;
+      }
 
     } catch (error) {
-      console.error('Error fetching from Etherscan V2:', error);
+      console.error('Error fetching from Covalent:', error);
       break;
     }
   }
@@ -80,7 +66,8 @@ export function extractMetrics(txs: any[]) {
     };
   }
 
-  const successfulTxs = txs.filter((tx: any) => tx.isError === '0');
+  // Covalent returns different field names
+  const successfulTxs = txs.filter((tx: any) => tx.successful);
   const failedTxs = txs.length - successfulTxs.length;
 
   const daySet = new Set<string>();
@@ -93,18 +80,18 @@ export function extractMetrics(txs: any[]) {
   const monthMap = new Map<string, number>();
 
   for (const tx of successfulTxs) {
-    const ts = parseInt(tx.timeStamp, 10) * 1000;
+    const ts = new Date(tx.block_signed_at).getTime();
     const date = new Date(ts);
 
     daySet.add(date.toISOString().split('T')[0]);
     if (ts < firstTs) firstTs = ts;
     if (ts > lastTs) lastTs = ts;
 
-    if (tx.to && tx.to !== '0x0000000000000000000000000000000000000000') {
-      contractSet.add(tx.to.toLowerCase());
+    if (tx.to_address && tx.to_address !== '0x0000000000000000000000000000000000000000') {
+      contractSet.add(tx.to_address.toLowerCase());
     }
 
-    const toLower = (tx.to || '').toLowerCase();
+    const toLower = (tx.to_address || '').toLowerCase();
     if (KNOWN_CONTRACTS[toLower]) {
       activityBreakdown[KNOWN_CONTRACTS[toLower]]++;
     }
