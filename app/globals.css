@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #09090b;
+  --foreground: #fafafa;
+}
+
+body {
+  font-feature-settings: "tnum";
+}
+
+/* Nice score gauge */
+.score-gauge {
+  width: 220px;
+  height: 220px;
+  border-radius: 9999px;
+  background: conic-gradient(
+    #0052FF 0deg,
+    #0052FF calc(var(--score) * 3.6deg),
+    #27272a calc(var(--score) * 3.6deg),
+    #27272a 360deg
+  );
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 10px 30px -15px rgb(0 0 0 / 0.3);
+}
+
+.score-gauge::before {
+  content: '';
+  position: absolute;
+  width: 170px;
+  height: 170px;
+  background: #09090b;
+  border-radius: 9999px;
+}
+
+/* Card styles */
+.metric-card {
+  transition: transform 0.2s cubic-bezier(0.23, 1, 0.32, 1), 
+              box-shadow 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+}
+
+/* Input focus */
+.address-input:focus {
+  box-shadow: 0 0 0 3px rgba(0, 82, 255, 0.15);
+}
+
+/* Tier badge */
+.tier-badge {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
