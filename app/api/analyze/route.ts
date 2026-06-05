@@ -41,9 +41,10 @@ export async function POST(request: NextRequest) {
     if (cachedResult) {
       return NextResponse.json({ success: true, data: cachedResult, cached: true } satisfies AnalyzeResponse);
     }
-    const apiKey = process.env.COVALENT_API_KEY;
+    // Support both old and new env var names
+    const apiKey = process.env.COVALENT_API_KEY || process.env.BASESCAN_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ success: false, error: 'Server is missing COVALENT_API_KEY. Please add your Covalent API key in Vercel Environment Variables.' }, { status: 500 });
+      return NextResponse.json({ success: false, error: 'Server is missing COVALENT_API_KEY (or BASESCAN_API_KEY). Please add it in Vercel Environment Variables.' }, { status: 500 });
     }
     const txs = await fetchBaseTransactions(normalizedAddress, apiKey);
     if (!txs || txs.length === 0) {
