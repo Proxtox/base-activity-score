@@ -4,7 +4,6 @@ import { fetchBaseTransactions, extractMetrics } from '@/lib/basescan';
 import { calculateBaseActivityScore } from '@/lib/calculateScore';
 import { AnalyzeResponse } from '@/lib/types';
 
-// In-memory cache fallback
 const memoryCache = new Map<string, { data: any; timestamp: number }>(); 
 const CACHE_TTL = 1000 * 60 * 60 * 6;
 
@@ -16,18 +15,14 @@ try {
 } catch (_) {}
 
 async function getCachedResult(key: string) {
-  if (kv) {
-    try { const cached = await kv.get(key); if (cached) return cached; } catch (_) {}
-  }
+  if (kv) { try { const cached = await kv.get(key); if (cached) return cached; } catch (_) {} }
   const mem = memoryCache.get(key);
   if (mem && Date.now() - mem.timestamp < CACHE_TTL) return mem.data;
   return null;
 }
 
 async function setCachedResult(key: string, data: any) {
-  if (kv) {
-    try { await kv.set(key, data, { ex: 21600 }); return; } catch (_) {}
-  }
+  if (kv) { try { await kv.set(key, data, { ex: 21600 }); return; } catch (_) {} }
   memoryCache.set(key, { data, timestamp: Date.now() });
 }
 
@@ -52,8 +47,7 @@ export async function POST(request: NextRequest) {
     }
     const txs = await fetchBaseTransactions(normalizedAddress, apiKey);
     const { metrics, monthlyData, activityBreakdown } = extractMetrics(txs);
-    const result = calculateBaseActivityScore(metrics, monthlyData);
-    (result as any).activityBreakdown = activityBreakdown;
+    const result = calculateBaseActivityScore(metrics, monthlyData, activityBreakdown);
     await setCachedResult(cacheKey, result);
     return NextResponse.json({ success: true, data: result, cached: false } satisfies AnalyzeResponse);
   } catch (error: any) {
