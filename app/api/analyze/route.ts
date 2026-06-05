@@ -41,13 +41,12 @@ export async function POST(request: NextRequest) {
     if (cachedResult) {
       return NextResponse.json({ success: true, data: cachedResult, cached: true } satisfies AnalyzeResponse);
     }
-    const apiKey = process.env.BASESCAN_API_KEY;
+    const apiKey = process.env.COVALENT_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ success: false, error: 'Server is missing BASESCAN_API_KEY. Please add it in Vercel Environment Variables.' }, { status: 500 });
+      return NextResponse.json({ success: false, error: 'Server is missing COVALENT_API_KEY. Please add your Covalent API key in Vercel Environment Variables.' }, { status: 500 });
     }
     const txs = await fetchBaseTransactions(normalizedAddress, apiKey);
     if (!txs || txs.length === 0) {
-      // Return a minimal result instead of failing
       const emptyResult = {
         score: 1,
         tier: "Just getting started",
@@ -65,6 +64,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, data: result, cached: false } satisfies AnalyzeResponse);
   } catch (error: any) {
     console.error('Analyze error:', error);
-    return NextResponse.json({ success: false, error: error.message || 'Failed to analyze wallet. Please check your BaseScan API key.' }, { status: 500 });
+    return NextResponse.json({ success: false, error: error.message || 'Failed to analyze wallet.' }, { status: 500 });
   }
 }
