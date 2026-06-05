@@ -1,0 +1,1 @@
+The full page.tsx content from sandbox
