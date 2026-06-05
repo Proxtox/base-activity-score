@@ -3,7 +3,7 @@ import { WalletMetrics, ScoreResult, MonthlyData, ActivityBreakdown } from './ty
 export function calculateBaseActivityScore(
   metrics: WalletMetrics,
   monthlyData: MonthlyData[],
-  activityBreakdown: ActivityBreakdown = { bridge: 0, nft: 0, swap: 0, lending: 0, liquidityProviding: 0, staking: 0, borrow: 0 }
+  activityBreakdown?: ActivityBreakdown
 ): ScoreResult {
   const { totalTxs, activeDays, uniqueContracts, accountAgeDays = 0 } = metrics;
 
@@ -22,8 +22,11 @@ export function calculateBaseActivityScore(
 
   let score = Math.floor(txScore + daysScore + diversityScore + recencyBonus);
   score = Math.max(1, Math.min(100, score));
-
   const tier = getTier(score);
+
+  const defaultBreakdown: ActivityBreakdown = { 
+    bridge: 0, nft: 0, swap: 0, lending: 0, liquidityProviding: 0, staking: 0, borrow: 0 
+  };
 
   return {
     score,
@@ -39,7 +42,7 @@ export function calculateBaseActivityScore(
     },
     metrics,
     monthlyData,
-    activityBreakdown,
+    activityBreakdown: activityBreakdown || defaultBreakdown,
   };
 }
 
