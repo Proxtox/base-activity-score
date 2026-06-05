@@ -1,8 +1,11 @@
 import { WalletMetrics, ActivityBreakdown } from './types';
 
-const BASESCAN_API = 'https://api.basescan.org/api';
-const MAX_TXS = 50000; // Increased limit
+const ETHERSCAN_V2_API = 'https://api.etherscan.io/v2/api';
+const BASE_CHAIN_ID = '8453'; // Base Mainnet
 
+const MAX_TXS = 50000;
+
+// Known popular contracts on Base
 const KNOWN_CONTRACTS: Record<string, keyof ActivityBreakdown> = {
   '0x3154cf16ccdb4c6d922629664174b904d80f2c35': 'bridge',
   '0x4200000000000000000000000000000000000010': 'bridge',
@@ -26,6 +29,7 @@ export async function fetchBaseTransactions(address: string, apiKey: string): Pr
 
   while (allTxs.length < MAX_TXS) {
     const params = new URLSearchParams({
+      chainid: BASE_CHAIN_ID,
       module: 'account',
       action: 'txlist',
       address: address,
@@ -38,10 +42,10 @@ export async function fetchBaseTransactions(address: string, apiKey: string): Pr
     });
 
     try {
-      const response = await fetch(`${BASESCAN_API}?${params.toString()}`);
-      
+      const response = await fetch(`${ETHERSCAN_V2_API}?${params.toString()}`);
+
       if (!response.ok) {
-        console.error('BaseScan API HTTP error:', response.status);
+        console.error('Etherscan V2 API error:', response.status);
         break;
       }
 
@@ -53,15 +57,13 @@ export async function fetchBaseTransactions(address: string, apiKey: string): Pr
 
       allTxs.push(...data.result);
 
-      if (data.result.length < offset) {
-        break;
-      }
+      if (data.result.length < offset) break;
 
       page++;
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(r => setTimeout(r, 150));
 
     } catch (error) {
-      console.error('Error fetching from BaseScan:', error);
+      console.error('Error fetching from Etherscan V2:', error);
       break;
     }
   }
@@ -72,33 +74,29 @@ export async function fetchBaseTransactions(address: string, apiKey: string): Pr
 export function extractMetrics(txs: any[]) {
   if (!txs || txs.length === 0) {
     return {
-      metrics: {
-        totalTxs: 0, activeDays: 0, uniqueContracts: 0, accountAgeDays: 0,
-        failedTxs: 0, spamTxs: 0
-      },
+      metrics: { totalTxs: 0, activeDays: 0, uniqueContracts: 0, accountAgeDays: 0, failedTxs: 0, spamTxs: 0 },
       monthlyData: [],
       activityBreakdown: { bridge: 0, nft: 0, swap: 0, lending: 0, liquidityProviding: 0, staking: 0, borrow: 0 }
     };
   }
 
-  const successfulTxs = txs.filter(tx => tx.isError === '0');
+  const successfulTxs = txs.filter((tx: any) => tx.isError === '0');
   const failedTxs = txs.length - successfulTxs.length;
 
-  const daySet = new Set();
-  const contractSet = new Set();
+  const daySet = new Set<string>();
+  const contractSet = new Set<string>();
   let firstTs = Infinity;
   let lastTs = 0;
   let spamCount = 0;
 
   const activityBreakdown = { bridge: 0, nft: 0, swap: 0, lending: 0, liquidityProviding: 0, staking: 0, borrow: 0 };
-  const monthMap = new Map();
+  const monthMap = new Map<string, number>();
 
   for (const tx of successfulTxs) {
-    const ts = parseInt(tx.timeStamp) * 1000;
+    const ts = parseInt(tx.timeStamp, 10) * 1000;
     const date = new Date(ts);
-    
+
     daySet.add(date.toISOString().split('T')[0]);
-    
     if (ts < firstTs) firstTs = ts;
     if (ts > lastTs) lastTs = ts;
 
@@ -118,7 +116,7 @@ export function extractMetrics(txs: any[]) {
   }
 
   const monthlyData = Array.from(monthMap.entries())
-    .map(([month, count]) => ({ month, txs: count }))
+    .map(([month, txs]) => ({ month, txs }))
     .sort((a, b) => a.month.localeCompare(b.month));
 
   const accountAgeDays = firstTs !== Infinity 
