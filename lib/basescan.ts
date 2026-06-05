@@ -1,9 +1,9 @@
 import { WalletMetrics, ActivityBreakdown } from './types';
 
 const BASESCAN_API = 'https://api.basescan.org/api';
-const MAX_TXS = 20000;
+const MAX_TXS = 50000; // Increased limit
 
-const KNOWN_CONTRACTS: Record<string, keyof ActivityBreakdown | 'spam'> = {
+const KNOWN_CONTRACTS: Record<string, keyof ActivityBreakdown> = {
   '0x3154cf16ccdb4c6d922629664174b904d80f2c35': 'bridge',
   '0x4200000000000000000000000000000000000010': 'bridge',
   '0xcF77a3Ba9A5CA399B7c97c74d54e5b1Beb874E43': 'swap',
@@ -13,21 +13,22 @@ const KNOWN_CONTRACTS: Record<string, keyof ActivityBreakdown | 'spam'> = {
 };
 
 function isLikelySpam(tx: any): boolean {
-  const value = BigInt(tx.value || '0');
-  const isSelfTransfer = tx.from?.toLowerCase() === tx.to?.toLowerCase();
-  const isVerySmall = value < BigInt('1000000000000000');
-  return isSelfTransfer && isVerySmall;
+  if (!tx.value || !tx.from || !tx.to) return false;
+  const value = BigInt(tx.value);
+  const isSelf = tx.from.toLowerCase() === tx.to.toLowerCase();
+  return isSelf && value < BigInt('1000000000000000');
 }
 
 export async function fetchBaseTransactions(address: string, apiKey: string): Promise<any[]> {
   const allTxs: any[] = [];
   let page = 1;
   const offset = 10000;
+
   while (allTxs.length < MAX_TXS) {
     const params = new URLSearchParams({
       module: 'account',
       action: 'txlist',
-      address,
+      address: address,
       startblock: '0',
       endblock: '99999999',
       page: page.toString(),
@@ -35,75 +36,105 @@ export async function fetchBaseTransactions(address: string, apiKey: string): Pr
       sort: 'asc',
       apikey: apiKey,
     });
-    const res = await fetch(`${BASESCAN_API}?${params.toString()}`);
-    if (!res.ok) throw new Error(`BaseScan API error: ${res.status}`);
-    const data = await res.json();
-    if (data.status !== '1' || !data.result) break;
-    allTxs.push(...data.result);
-    if (data.result.length < offset) break;
-    page++;
-    await new Promise(r => setTimeout(r, 100));
+
+    try {
+      const response = await fetch(`${BASESCAN_API}?${params.toString()}`);
+      
+      if (!response.ok) {
+        console.error('BaseScan API HTTP error:', response.status);
+        break;
+      }
+
+      const data = await response.json();
+
+      if (data.status !== '1' || !data.result || data.result.length === 0) {
+        break;
+      }
+
+      allTxs.push(...data.result);
+
+      if (data.result.length < offset) {
+        break;
+      }
+
+      page++;
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+    } catch (error) {
+      console.error('Error fetching from BaseScan:', error);
+      break;
+    }
   }
+
   return allTxs;
 }
 
-export function extractMetrics(txs: any[]): { metrics: WalletMetrics; monthlyData: any[]; activityBreakdown: ActivityBreakdown } {
+export function extractMetrics(txs: any[]) {
   if (!txs || txs.length === 0) {
     return {
-      metrics: { totalTxs: 0, activeDays: 0, uniqueContracts: 0, failedTxs: 0, spamTxs: 0 },
+      metrics: {
+        totalTxs: 0, activeDays: 0, uniqueContracts: 0, accountAgeDays: 0,
+        failedTxs: 0, spamTxs: 0
+      },
       monthlyData: [],
       activityBreakdown: { bridge: 0, nft: 0, swap: 0, lending: 0, liquidityProviding: 0, staking: 0, borrow: 0 }
     };
   }
-  const successfulTxs = txs.filter((tx: any) => tx.isError === '0');
+
+  const successfulTxs = txs.filter(tx => tx.isError === '0');
   const failedTxs = txs.length - successfulTxs.length;
-  const totalTxs = successfulTxs.length;
-  const daySet = new Set<string>();
+
+  const daySet = new Set();
+  const contractSet = new Set();
   let firstTs = Infinity;
   let lastTs = 0;
-  const contractSet = new Set<string>();
   let spamCount = 0;
-  const activityBreakdown: ActivityBreakdown = { bridge: 0, nft: 0, swap: 0, lending: 0, liquidityProviding: 0, staking: 0, borrow: 0 };
-  const monthMap = new Map<string, number>();
+
+  const activityBreakdown = { bridge: 0, nft: 0, swap: 0, lending: 0, liquidityProviding: 0, staking: 0, borrow: 0 };
+  const monthMap = new Map();
+
   for (const tx of successfulTxs) {
-    const ts = parseInt(tx.timeStamp, 10) * 1000;
+    const ts = parseInt(tx.timeStamp) * 1000;
     const date = new Date(ts);
-    const dateStr = date.toISOString().split('T')[0];
-    daySet.add(dateStr);
+    
+    daySet.add(date.toISOString().split('T')[0]);
+    
     if (ts < firstTs) firstTs = ts;
     if (ts > lastTs) lastTs = ts;
+
     if (tx.to && tx.to !== '0x0000000000000000000000000000000000000000') {
       contractSet.add(tx.to.toLowerCase());
     }
+
     const toLower = (tx.to || '').toLowerCase();
-    const activityType = KNOWN_CONTRACTS[toLower];
-    if (activityType && activityType !== 'spam') {
-      activityBreakdown[activityType as keyof ActivityBreakdown]++;
+    if (KNOWN_CONTRACTS[toLower]) {
+      activityBreakdown[KNOWN_CONTRACTS[toLower]]++;
     }
+
     if (isLikelySpam(tx)) spamCount++;
+
     const monthKey = date.toLocaleString('en-US', { month: 'short', year: 'numeric' });
     monthMap.set(monthKey, (monthMap.get(monthKey) || 0) + 1);
   }
-  const monthlyData = Array.from(monthMap.entries()).map(([month, txs]) => ({ month, txs })).sort((a, b) => {
-    const [aM, aY] = a.month.split(' ');
-    const [bM, bY] = b.month.split(' ');
-    if (aY !== bY) return parseInt(aY) - parseInt(bY);
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    return months.indexOf(aM) - months.indexOf(bM);
-  });
-  const accountAgeDays = firstTs !== Infinity ? Math.floor((Date.now() - firstTs) / (1000 * 60 * 60 * 24)) : 0;
+
+  const monthlyData = Array.from(monthMap.entries())
+    .map(([month, count]) => ({ month, txs: count }))
+    .sort((a, b) => a.month.localeCompare(b.month));
+
+  const accountAgeDays = firstTs !== Infinity 
+    ? Math.floor((Date.now() - firstTs) / (1000 * 60 * 60 * 24)) 
+    : 0;
+
   return {
     metrics: {
-      totalTxs,
+      totalTxs: successfulTxs.length,
       activeDays: daySet.size,
       uniqueContracts: contractSet.size,
-      firstTxDate: firstTs !== Infinity ? new Date(firstTs).toISOString().split('T')[0] : undefined,
-      lastTxDate: lastTs ? new Date(lastTs).toISOString().split('T')[0] : undefined,
       accountAgeDays,
       failedTxs,
-      spamTxs: spamCount,
+      spamTxs: spamCount
     },
     monthlyData,
-    activityBreakdown,
+    activityBreakdown
   };
 }
