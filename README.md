@@ -1,0 +1,1 @@
+The full README content here - I will paste actual in next call if needed
