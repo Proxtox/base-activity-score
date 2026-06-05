@@ -43,14 +43,28 @@ export async function POST(request: NextRequest) {
     }
     const apiKey = process.env.BASESCAN_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ success: false, error: 'Server is missing BASESCAN_API_KEY' }, { status: 500 });
+      return NextResponse.json({ success: false, error: 'Server is missing BASESCAN_API_KEY. Please add it in Vercel Environment Variables.' }, { status: 500 });
     }
     const txs = await fetchBaseTransactions(normalizedAddress, apiKey);
+    if (!txs || txs.length === 0) {
+      // Return a minimal result instead of failing
+      const emptyResult = {
+        score: 1,
+        tier: "Just getting started",
+        breakdown: { txScore: 0, daysScore: 0, diversityScore: 0, recencyBonus: 1, totalTxs: 0, activeDays: 0, uniqueContracts: 0 },
+        metrics: { totalTxs: 0, activeDays: 0, uniqueContracts: 0, accountAgeDays: 0, failedTxs: 0, spamTxs: 0 },
+        monthlyData: [],
+        activityBreakdown: { bridge: 0, nft: 0, swap: 0, lending: 0, liquidityProviding: 0, staking: 0, borrow: 0 }
+      };
+      await setCachedResult(cacheKey, emptyResult);
+      return NextResponse.json({ success: true, data: emptyResult, cached: false, message: "No transactions found for this address on Base." });
+    }
     const { metrics, monthlyData, activityBreakdown } = extractMetrics(txs);
     const result = calculateBaseActivityScore(metrics, monthlyData, activityBreakdown);
     await setCachedResult(cacheKey, result);
     return NextResponse.json({ success: true, data: result, cached: false } satisfies AnalyzeResponse);
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message || 'Failed to analyze wallet' }, { status: 500 });
+    console.error('Analyze error:', error);
+    return NextResponse.json({ success: false, error: error.message || 'Failed to analyze wallet. Please check your BaseScan API key.' }, { status: 500 });
   }
 }
